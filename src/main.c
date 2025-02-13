@@ -1,52 +1,51 @@
 
-#include <avr/interrupt.h> // AVR 인터럽트에 대한 헤더파일
-#include <avr/io.h>        // AVR 입출력에 대한 헤더 파일
+#include "lcd.h"        //Text LCD를 사용하기 위한 헤더 파일
+#include <avr/io.h>     //AVR 입출력에 대한 헤더 파일
+#include <util/delay.h> //delay 함수사용을 위한 헤더파일
 
-volatile unsigned char TX_flag = 0;
-volatile char TX_data = 0; // 스위치 전송 값 저장 변수
-
-// 7-Segment에 표시할 글자의 입력 데이터를 저장
-unsigned char FND_DATA_TBL[] = {0x3F, 0X06, 0X5B, 0X4F, 0X66, 0X6D, 0X7C, 0X07, 0X7F, 0X67, 0X77, 0X7C, 0X39, 0X5E, 0X79, 0X71, 0X08, 0X80};
-
-void putch(unsigned char data)
-{
-  while ((UCSR0A & 0x20) == 0)
-    ;          // 전송준비가 될때까지 대기
-  UDR0 = data; // 데이터를 UDR0에 쓰면 전송된다
-  UCSR0A |= 0x20;
-}
-
-unsigned char getch(void)
-{
-  unsigned char data;
-  while ((UCSR0A & 0x80) == 0)
-    ;          // 데이타를 받을때까지 대기
-  data = UDR0; // 수신된 데이터는 UDR0에 저장되어 있다.
-  UCSR0A |= 0x80;
-  return data; // 읽어온 문자를 반환한다.
-}
+#define M1_Forword 0x10
+#define M1_Reverse 0x20
+#define M1_Enable 0x20
 
 int main(void)
 {
-  unsigned char RX_data = 0;
+  unsigned char pwmduty = 60, cnt_dir = 0;
 
-  DDRE = 0x0e; // Rx(입력 0), Tx(출력, 1)
-  DDRA = 0xFF; // 포트A 를 출력포트로 설정한다.
+  DDRD = 0x30; // MOTOR1_IN1, MOTOR1_IN2를 출력 포트로 설정 한다.
+  DDRB = 0x20; // MOTOR1_EN 를 출력 포트로 설정 한다.
 
-  UCSR0A = 0x00;
-  UCSR0B = 0x18; // Rx, Tx enable
-  UCSR0C = 0x06; // 비동기 방식, No Parity bit, 1 Stop bit
+  TCCR1A = 0x82; // COMnA1=1 COMnA0=0 COMnB1=0 COMnB0=0 COMnC1=0 COMnC0=0 WGMn1=1 WGMn0=0
+  TCCR1B = 0x19; // ICNCn=0 ICESn=0 Blink=0 WGMn3=1 WGMn2=1 CSn2=0 CSn1=0 CSn0=1
+  TCCR1C = 0x00;
 
-  UBRR0H = 0x00;
-  UBRR0L = 0x07; // 115200 bps
+  ICR1 = 800;  // 14745600/18432 => 800
+  OCR1A = 560; // 듀티비 70%
+
+  PORTD = M1_Forword; // DC Motor 정회전
+
+  lcdInit();                  // Text LCD를 초기화
+  lcdGotoXY(0, 0);            // 현재 커서위치를 첫번째줄 첫번째칸으로 이동한다.
+  lcdPrintData(" Duty: ", 7); // " Duty: " 출력
 
   while (1)
   {
-    RX_data = getch(); // PC로 부터 입력 받은 데이터를 변수 RX_data에 저장
-    if ((RX_data >= 0x30) && (RX_data <= 0x39))
+    if (cnt_dir)
     {
-      PORTA = FND_DATA_TBL[RX_data - 0x30]; // 포트A에 입력된 값의 FND Table 값을 출력한다.
-                                            // 아스키코드 '0'은 0x30 임.
+      pwmduty = pwmduty - 5; // pwmduty가 1씩 감소한다
+      if (pwmduty < 50)
+        cnt_dir = 0; // pwmduty가 0이 되면 pwmduty가 증가하기 시작한다.
     }
+    else
+    {
+      pwmduty = pwmduty + 5; // pwmduty가 1씩 증가한다
+      if (pwmduty > 99)
+        cnt_dir = 1; // pwmduty가 100이 되면 pwmduty가 감소하기 시작한다.
+    }
+    OCR1A = 8 * pwmduty; // 듀티비가 1%씩 증가한다
+    lcdGotoXY(7, 0);
+    lcdDataWrite((pwmduty / 10) % 10 + '0'); // 10의 자리 출력
+    lcdDataWrite((pwmduty) % 10 + '0');      // 1의 자리 출력
+    lcdDataWrite('%');                       //%출력
+    _delay_ms(1000);
   }
 }
